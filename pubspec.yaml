@@ -1,0 +1,33 @@
+name: questest
+description: 智能出题应用 — 支持文档导入、题库管理、智能选题与批阅
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  sqflite: ^2.4.2
+  path_provider: ^2.1.5
+  path: ^1.9.1
+  provider: ^6.1.5
+  file_picker: ^8.1.7
+  uuid: ^4.5.1
+  intl: ^0.20.2
+  shared_preferences: ^2.3.5
+  http: ^1.3.0
+  crypto: ^3.0.3
+  flutter_markdown: ^0.7.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
