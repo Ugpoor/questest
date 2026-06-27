@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="questest"
+        android:label="刷题宝宝"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

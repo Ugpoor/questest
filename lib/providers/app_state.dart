@@ -56,6 +56,24 @@ class AppState extends ChangeNotifier {
   AppSettings _settings = AppSettings();
   AppSettings get settings => _settings;
 
+  // ==================== 成绩报告跳转信号 ====================
+
+  /// 当设置此值时，ResultsScreen 应自动打开对应测试的详情
+  int? _viewResultTestId;
+  int? get viewResultTestId => _viewResultTestId;
+
+  /// 设置要查看结果的测试 ID，并自动切换到成绩报告 Tab
+  void setViewResult(int testId) {
+    _viewResultTestId = testId;
+    _currentTab = 4;
+    notifyListeners();
+  }
+
+  /// 清除查看结果的跳转信号
+  void clearViewResult() {
+    _viewResultTestId = null;
+  }
+
   // ==================== 加载 / 错误状态 ====================
 
   bool _isLoading = false;

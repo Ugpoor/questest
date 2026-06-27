@@ -1,118 +1,132 @@
-# Questest - 智能出题
+# 智能出题 (Questest)
 
-支持文档导入、题库管理、AI 智能归类与组卷出题的 Flutter 应用。
+基于 Flutter 的智能出题与考试应用，支持文档导入解析、题库管理、多维度智能选题、限时答题与自动批阅。面向 Android 平板横屏使用场景设计。
 
 ## 功能概览
 
-**文档导入** — 从 .doc/.docx 文件中批量解析选择题，自动提取题干、选项（A-E）、答案和解析。
+应用包含五个功能模块，通过顶部 Tab 栏切换，使用 `IndexedStack` 保持各页面状态不丢失。
 
-**题库管理** — 每次导入生成独立题库表，支持多题库切换、浏览和删除。题目按三维标签（dim1/dim2/dim3）组织。
+**文档导入** — 选择 `.docx` 或 `.doc` 文件后，系统自动完成解析入库。导入过程包含两级排重：文件级 SHA-256 哈希排重（防止同一文件重复导入）和题干级内容排重（过滤已有相同题目）。解析完成后显示新增、重复和总解析数量统计。
 
-**AI 归类** — 配置 OpenAI 兼容的 LLM API 后，可按自定义维度（如"知识点/难度/题型"）自动为题目打标签。未配置 LLM 时回退到本地关键词匹配。
+**题库管理** — 左侧显示所有题库列表（含题目数量），右侧展示选中题库的题目详情，支持关键词搜索和分页浏览。每个题库表包含三道维度标签（dim1/dim2/dim3），可通过 AI 自动分类或手动设定。删除题库需输入题库名称确认。
 
-**智能组卷** — 基于维度分层抽样选题，支持设定题目数量、维度过滤和覆盖率参数，自动避免连续同序号题目。
+**智能选题** — 创建测试会话后，系统提供三种选题模式：
 
-**计时考试** — 横屏全屏答题，支持单选/多选，每题计时，完成后展示成绩报告。
+- 自动随机选题：按序号分段均匀采样，将总题数分成 N 段，每段随机取一题，保证题目在序号上的均匀分布。
+- 按维度选题：选择 dim1/dim2/dim3 中的某个维度，系统列出该维度所有分类值及其题目数，用户为每个分类指定选取数量，最后一项自动计算（总数减去已分配数），从数据库直接按 `ORDER BY RANDOM()` 抽取。
+- 智能维度分散：默认模式，遍历所有维度标签，优先保证每个分类至少有 1 题被选中，再按配额补足剩余名额。
+
+选题过程有进度条实时反馈。测试会话经历 `待选题 → 待提交 → 已批阅` 的状态流转，另有 `已中止` 作为终止状态。
+
+**限时答题** — 进入答题后显示倒计时，支持单选和多选两种题型。答题过程中可随时退出（答案自动保存），下次从测试列表点击进入继续作答。底部设有红色"终止"按钮，可中止当前测试。中止的测试不参与批阅，状态标记为"已中止"，可删除。提交后系统自动对比标准答案进行批阅。
+
+**成绩报告** — 展示所有已完成测试的批阅结果，包括得分、用时、正确率等。仅显示状态为 `completed` 的测试记录。
+
+## 技术架构
+
+### 状态管理
+
+采用 Provider + ChangeNotifier 模式，全局唯一的 `AppState` 管理所有应用状态：导航 Tab 索引、题库列表与选中项、测试会话列表与当前活跃测试、答题记录、导入结果计数器和加载/错误状态。各 Screen 通过 `Consumer<AppState>` 或 `context.watch<AppState>()` 响应状态变化。
+
+### 数据存储
+
+使用 sqflite（SQLite3）作为本地数据库，数据库 schema 版本为 2。首次启动时从 `assets/questest.db` 复制预置题库到应用数据库目录。如果检测到数据库为空（`question_tables` 表无记录），会重新从 assets 复制。
+
+固定表结构：
+
+- `question_tables` — 题库元信息（表名、显示名、文件路径、创建时间、题目数）
+- `dimensions` — 维度定义（dim_index, dim_name）
+- `file_hashes` — 文件哈希排重记录（SHA-256）
+- `test_sessions` — 测试会话（标题、题库、题数、时长、状态、起止时间、得分）
+- `test_answers` — 答题记录（test_id、question_id、用户答案、是否正确、得分）
+
+动态表：每个题库创建一张 `q_<名称>` 表，包含 id、seq、content、options（JSON 数组）、correct_answers、explanation、dim1、dim2、dim3。
+
+### LLM 集成
+
+内置阿里云百炼（DashScope）API 调用，使用 `qwen3.7-plus` 模型，通过 OpenAI 兼容接口 (`/compatible-mode/v1/chat/completions`) 通信。API 密钥硬编码在源码中，用户无需配置。LLM 用于题目维度分类：将题目按批次（每批 10 题，间隔 500ms）发送给模型，返回 JSON 格式的 dim1/dim2/dim3 标签。当 LLM 不可用时，回退到基于关键词的本地分类。
+
+### 文档解析
+
+`DocParserService` 通过调用本地进程解析文档：`.docx` 使用 `python3` 内联脚本读取 zip/XML 结构；`.doc` 使用 macOS 原生的 `textutil` 命令转换为纯文本。解析器识别题号（阿拉伯数字或中文数字）、选项（A-E）、答案和解析，支持单选和多选。
+
+**注意：** 文档解析依赖本地 `python3` 和 `textutil` 命令，仅在 macOS 上完整可用。Android 端可通过预置数据库使用内置题库，但无法导入新文档。
 
 ## 项目结构
 
 ```
 questest_app/
-  lib/
-    main.dart                   # 入口，Provider 注入，横屏全屏配置
-    models/
-      question.dart             # Question / QuestionOption 模型
-      quiz_session.dart         # QuizSession / QuizAnswer 模型
-      app_settings.dart         # AppSettings 模型（计时器、维度等）
-    providers/
-      app_state.dart            # AppState (ChangeNotifier) — 全局状态管理
-    screens/
-      home_screen.dart          # 主页：统计概览 + 功能入口
-      import_screen.dart        # 文档导入（file_picker 选择 .doc/.docx）
-      question_bank_screen.dart # 题库浏览 + 维度分布查看
-      classify_screen.dart      # AI 归类操作界面
-      quiz_setup_screen.dart    # 组卷设置（数量、维度过滤、策略）
-      quiz_screen.dart          # 答题界面（计时、翻页）
-      result_screen.dart        # 成绩报告
-      settings_screen.dart      # 设置（计时器、维度定义、LLM API 配置）
-    services/
-      database_service.dart     # SQLite 数据层（sqflite）
-      doc_parser_service.dart   # .doc/.docx 解析
-      llm_classify_service.dart # LLM 调用 + 本地关键词分类
-      question_selector.dart    # 智能选题算法
-    widgets/                    # 自定义组件（预留）
+├── lib/
+│   ├── main.dart                    # 入口 + MainScreen（5-Tab IndexedStack）
+│   ├── models/
+│   │   ├── question.dart            # Question / QuestionOption 模型
+│   │   ├── test_session.dart        # TestSession / TestAnswer 模型
+│   │   └── app_settings.dart        # AppSettings（时长、维度定义）
+│   ├── providers/
+│   │   └── app_state.dart           # 全局状态管理（ChangeNotifier）
+│   ├── screens/
+│   │   ├── import_screen.dart       # 文档导入
+│   │   ├── question_bank_screen.dart # 题库浏览与管理
+│   │   ├── selection_screen.dart    # 创建测试 + 选题
+│   │   ├── test_screen.dart         # 答题 + 批阅
+│   │   └── results_screen.dart      # 成绩报告
+│   ├── services/
+│   │   ├── database_service.dart    # SQLite 数据库操作
+│   │   ├── doc_parser_service.dart  # 文档解析（.docx/.doc）
+│   │   ├── llm_classify_service.dart # LLM 题目分类
+│   │   └── question_selector.dart   # 智能选题算法
+│   └── widgets/                     # 公共组件（当前为空）
+├── assets/
+│   ├── questest.db                  # 预置题库（1000 题，10 个主题分类）
+│   └── 青少年人工智能基础知识大赛题库.doc  # 示例源文档
+├── android/                         # Android 平台配置
+├── pubspec.yaml                     # 依赖声明
+└── README.md
 ```
 
-## 技术栈
+## 预置题库
 
-- Flutter 3.x + Dart 3.x
-- 状态管理：Provider (ChangeNotifier)
-- 数据库：sqflite（每个导入文档一张表，元数据表 `question_tables`，维度表 `dimensions`）
-- 依赖：file_picker, path_provider, shared_preferences, http, flutter_markdown, uuid, intl
-- LLM 接口：OpenAI 兼容格式 `/chat/completions`，用户可在设置页配置 API 地址和 Key
+`assets/questest.db` 包含 1000 道"青少年人工智能基础知识大赛"题目，已通过 LLM（qwen3.7-plus）完成分类打标，覆盖 10 个主题：人工智能基础、机器学习与深度学习、计算机视觉、自然语言处理、语音识别与合成、智能机器人、自动驾驶与智能交通、AI 伦理与安全、AI 编程与工具、前沿应用与未来趋势。每道题均包含题干、选项（JSON 格式）、正确答案、解析和 dim1 维度标签。
 
-## 环境要求与 Android Studio 调试配置
+## 依赖项
 
-### 前置条件
+| 包 | 用途 |
+|---|---|
+| `sqflite` | 本地 SQLite3 数据库 |
+| `provider` | 状态管理 |
+| `file_picker` | 文件选择（文档导入） |
+| `http` | LLM API 网络请求 |
+| `crypto` | SHA-256 文件哈希 |
+| `shared_preferences` | 应用设置持久化 |
+| `path_provider` | 数据库目录定位 |
+| `flutter_markdown` | Markdown 内容渲染 |
+| `intl` | 日期时间格式化 |
+| `uuid` | 唯一标识生成 |
 
-- Flutter SDK >= 3.0（推荐 stable 最新版）
-- Android Studio（含 Flutter 和 Dart 插件）
-- Android SDK（cmdline-tools + 已接受 license）
-- macOS 环境（文档解析的 .doc 格式依赖系统自带 `textutil`）
-- Python 3（文档解析的 .docx 格式依赖 `python3` 命令）
-
-### 初始化 Android 平台
-
-项目默认只包含 iOS 和 macOS 平台代码。如需 Android 调试，先在项目根目录执行：
+## 构建与运行
 
 ```bash
-cd questest_app
-flutter create . --platforms=android
+# 确保 Flutter SDK 已安装
+flutter pub get
+
+# 调试运行（连接设备或模拟器）
+flutter run
+
+# 构建 Android APK
+flutter build apk --debug    # 调试版
+flutter build apk --release  # 发布版（需配置签名）
 ```
 
-### 修复 Android toolchain（命令行自动化）
+应用强制横屏显示（`landscapeLeft` + `landscapeRight`），启用全屏沉浸式模式（`immersiveSticky`）。
 
-如果 `flutter doctor` 报 cmdline-tools 缺失或 license 未接受，可全部用命令行完成，无需打开 AS 的 SDK Manager GUI：
+## 平台限制
 
-```bash
-# 1. 下载并安装 cmdline-tools
-curl -sL -o /tmp/cmdline-tools.zip \
-  "https://dl.google.com/android/repository/commandlinetools-mac-13114758_latest.zip"
-cd /tmp && unzip -q cmdline-tools.zip
-mkdir -p $ANDROID_HOME/cmdline-tools
-mv /tmp/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
+文档导入功能依赖 `python3`（解析 .docx）和 `textutil`（解析 .doc），目前仅在 macOS 上可用。Android 端可使用预置题库和全部考试功能，但无法从外部文档导入新题目。LLM 分类功能需要网络连接。
 
-# 2. 安装所需 SDK 组件
-export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
-sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+## 关键设计约束
 
-# 3. 自动接受所有 license
-yes | sdkmanager --licenses
+`Question.fromMap` 需要显式传入 `tableName` 参数，因为数据库表结构中不包含 `table_name` 列。相应地，`toMap()` 不输出 `table_name` 字段，避免 INSERT 时因列不存在而报错。
 
-# 4. 验证
-flutter doctor
-```
+测试会话中的派生 UI 状态（如维度选题中最后一项的自动计算数量）使用纯 getter 派生，不在 `build()` 中调用 `addPostFrameCallback` + `setState`，以避免无限重建循环。
 
-### 打开项目
-
-用 Android Studio 打开 **`questest_app/`** 目录（即 `pubspec.yaml` 所在的那一层），不要打开外层的 `questest/` 容器目录。AS 的 Flutter 插件会自动识别项目类型，`.idea/runConfigurations/main_dart.xml` 中已有默认运行配置。
-
-### 运行与调试
-
-连接 Android 设备或启动模拟器后，直接在 AS 中点击 Run 即可。如需断点调试，在 Dart 代码行号旁设置断点，使用 Debug 模式启动。
-
-## 文档解析说明
-
-文档导入功能依赖外部工具：
-
-- **.docx** — 通过内嵌 Python 脚本（`zipfile` + `xml.etree`）解析，需要系统 PATH 中有 `python3`
-- **.doc** — 通过 macOS 内置 `textutil` 转换为纯文本后正则解析，仅限 macOS
-
-在 Android/iOS 设备上运行时，这两种外部工具均不可用，文档导入功能将受限。
-
-## 注意事项
-
-- 应用强制横屏显示（`landscapeLeft` + `landscapeRight`），启动后进入全屏沉浸模式
-- LLM 归类按每批 10 题调用，批次间隔 500ms 防止限流
-- 本地关键词分类是 LLM 的降级方案，准确度有限
-- `widgets/` 目录当前为空，可提取公共 UI 组件到此目录
+预置数据库复制逻辑不仅检查文件是否存在，还会打开数据库验证 `question_tables` 是否为空。这确保旧版安装（可能复制了空库）能正确被覆盖。

@@ -31,7 +31,7 @@ class QuestestApp extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (_) => AppState(),
       child: MaterialApp(
-        title: '智能出题',
+        title: '刷题宝宝',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
@@ -174,7 +174,7 @@ class _MainScreenState extends State<MainScreen>
               ),
               const SizedBox(width: 10),
               const Text(
-                '智能出题',
+                '刷题宝宝',
                 style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.bold,

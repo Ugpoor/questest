@@ -28,6 +28,25 @@ class _ResultsScreenState extends State<ResultsScreen> {
   // 正在批阅中的 testId 集合
   final Set<int> _gradingIds = {};
 
+  // 追踪上次处理的跳转信号，避免重复加载
+  int? _lastProcessedResultId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final app = context.watch<AppState>();
+    final targetId = app.viewResultTestId;
+    if (targetId != null && targetId != _lastProcessedResultId) {
+      _lastProcessedResultId = targetId;
+      final session = app.testSessions
+          .where((s) => s.id == targetId && s.status == 'completed')
+          .firstOrNull;
+      if (session != null) {
+        _loadDetail(session);
+      }
+    }
+  }
+
   @override
   void dispose() {
     _expandedQuestionIds.clear();
@@ -70,6 +89,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
       _detailQuestions = [];
       _detailAnswers = [];
       _expandedQuestionIds.clear();
+      _lastProcessedResultId = null;
     });
   }
 

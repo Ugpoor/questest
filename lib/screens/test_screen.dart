@@ -477,7 +477,7 @@ class _TestScreenState extends State<TestScreen> {
             const SizedBox(width: 8),
             OutlinedButton(
               onPressed: () {
-                // Results navigation handled by parent tab switch
+                context.read<AppState>().setViewResult(session.id!);
               },
               style: OutlinedButton.styleFrom(
                 foregroundColor: const Color(0xFF4CAF50),
